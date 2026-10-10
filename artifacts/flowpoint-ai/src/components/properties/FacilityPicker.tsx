@@ -4,6 +4,7 @@ import { Check, ChevronDown, Search, X } from 'lucide-react';
 interface FacilityOption {
   value: string;
   label: string;
+  group?: string;
 }
 
 interface FacilityPickerProps {
@@ -25,9 +26,18 @@ export function FacilityPicker({ options, value, onChange, testId }: FacilityPic
     return options.filter((option) =>
       !normalizedQuery
       || option.label.toLocaleLowerCase().includes(normalizedQuery)
+      || option.group?.toLocaleLowerCase().includes(normalizedQuery)
       || option.value.replaceAll('_', ' ').toLocaleLowerCase().includes(normalizedQuery),
     );
   }, [options, query]);
+  const visibleGroups = useMemo(() => {
+    const groups = new Map<string, FacilityOption[]>();
+    visible.forEach((option) => {
+      const group = option.group || 'Facilities';
+      groups.set(group, [...(groups.get(group) ?? []), option]);
+    });
+    return Array.from(groups.entries());
+  }, [visible]);
   const toggle = (facility: string) => onChange(
     value.includes(facility)
       ? value.filter((item) => item !== facility)
@@ -97,34 +107,44 @@ export function FacilityPicker({ options, value, onChange, testId }: FacilityPic
               className="h-9 w-full rounded-[8px] border border-[#e4e2de] bg-[#fbfaf8] pl-8 pr-3 text-[11px] text-[#34312d] outline-none focus:border-[#8fa697] focus:ring-2 focus:ring-[#8fa697]/15"
             />
           </label>
-          <div className="mt-2 max-h-[220px] overflow-y-auto overscroll-contain rounded-[8px] border border-[#efede8] bg-[#fdfdfc] p-1">
+          <div aria-label="Available facilities" className="mt-2 max-h-[280px] overflow-y-auto overscroll-contain rounded-[8px] border border-[#efede8] bg-[#fdfdfc] p-1">
             {visible.length === 0 ? (
               <p className="px-3 py-5 text-center text-[10px] text-[#969188]">No matching facilities.</p>
             ) : (
-              visible.map((facility) => {
-                const isSelected = value.includes(facility.value);
-                return (
-                  <button
-                    key={facility.value}
-                    type="button"
-                    data-testid={`${testId}-option-${facility.value}`}
-                    aria-pressed={isSelected}
-                    onClick={() => toggle(facility.value)}
-                    className={`flex min-h-9 w-full items-center gap-2.5 rounded-[6px] px-2.5 text-left text-[10px] transition-colors ${
-                      isSelected
-                        ? 'bg-[#edf4ee] font-semibold text-[#4d6a59]'
-                        : 'text-[#625e57] hover:bg-[#f3f2ee]'
-                    }`}
-                  >
-                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border ${
-                      isSelected ? 'border-[#63816e] bg-[#63816e] text-white' : 'border-[#d5d2ca] bg-white'
-                    }`}>
-                      {isSelected && <Check size={10} />}
-                    </span>
-                    {facility.label}
-                  </button>
-                );
-              })
+              <div className="space-y-2">
+                {visibleGroups.map(([group, groupOptions]) => (
+                  <section key={group} aria-label={group}>
+                    <p className="sticky top-0 z-[1] bg-[#fdfdfc] px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[.1em] text-[#969188]">
+                      {group}
+                    </p>
+                    {groupOptions.map((facility) => {
+                      const isSelected = value.includes(facility.value);
+                      return (
+                        <button
+                          key={facility.value}
+                          type="button"
+                          data-testid={`${testId}-option-${facility.value}`}
+                          role="checkbox"
+                          aria-checked={isSelected}
+                          onClick={() => toggle(facility.value)}
+                          className={`flex min-h-9 w-full items-center gap-2.5 rounded-[6px] px-2.5 text-left text-[10px] transition-colors ${
+                            isSelected
+                              ? 'bg-[#edf4ee] font-semibold text-[#4d6a59]'
+                              : 'text-[#625e57] hover:bg-[#f3f2ee]'
+                          }`}
+                        >
+                          <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border ${
+                            isSelected ? 'border-[#63816e] bg-[#63816e] text-white' : 'border-[#d5d2ca] bg-white'
+                          }`}>
+                            {isSelected && <Check size={10} />}
+                          </span>
+                          {facility.label}
+                        </button>
+                      );
+                    })}
+                  </section>
+                ))}
+              </div>
             )}
           </div>
           <p className="mt-1.5 text-right text-[9px] text-[#aaa59d]">

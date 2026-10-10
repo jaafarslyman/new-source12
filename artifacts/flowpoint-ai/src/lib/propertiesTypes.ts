@@ -399,6 +399,29 @@ export const MIXED_USE_COMPONENTS = [
   { value: 'warehouse', label: 'Warehouses' },
 ] as const;
 
+export function mixedUseFloorPlanSummary(
+  plan: Record<string, number>[] | null | undefined,
+  components: string[] | null | undefined,
+) {
+  if (!plan?.length || !components?.length) return null;
+  const labels: Record<string, { singular: string; plural: string }> = {
+    apartment: { singular: 'apartment', plural: 'apartments' },
+    office: { singular: 'office space', plural: 'office spaces' },
+    retail_store: { singular: 'retail store', plural: 'retail stores' },
+    restaurant_hospitality: { singular: 'hospitality space', plural: 'hospitality spaces' },
+    warehouse: { singular: 'warehouse', plural: 'warehouses' },
+  };
+  return plan.map((floor, index) => {
+    const spaces = components.flatMap((component) => {
+      const count = Number(floor[component] ?? 0);
+      if (count <= 0) return [];
+      const label = labels[component] ?? { singular: component, plural: `${component}s` };
+      return [`${count} ${count === 1 ? label.singular : label.plural}`];
+    });
+    return `${index === 0 ? 'Ground floor' : `Floor ${index}`}: ${spaces.length ? spaces.join(', ') : 'No spaces'}`;
+  }).join(' · ');
+}
+
 export function mixedUseOwnershipScopeValues(scope: string | null | undefined) {
   const validValues = new Set(MIXED_USE_COMPONENTS.map((component) => component.value));
   return (scope ?? '')

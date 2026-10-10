@@ -83,17 +83,25 @@ type IndustrialArrayField = 'warehouse_goods' | 'distribution_goods' | 'distribu
 
 const inputClass = 'h-10 w-full rounded-[9px] border border-[#e4e2de] bg-white px-3 text-[13px] text-[#24211e] outline-none transition-colors placeholder:text-[#b3afa8] focus:border-[#587b70] focus:ring-2 focus:ring-[#587b70]/10 disabled:cursor-not-allowed disabled:bg-[#f5f3f0]';
 let nextSyntheticContactId = -1;
-type FacilityOption = { value: string; label: string };
+type FacilityOption = { value: string; label: string; group?: string };
+type FacilityGroup = { label: string; options: readonly FacilityOption[] };
+type MixedUseFloorDraft = Record<string, string>;
 
-function uniqueFacilityOptions(...groups: readonly (readonly FacilityOption[])[]) {
-  return Array.from(new Map(groups.flat().map((facility) => [facility.value, facility])).values());
+function groupedFacilityOptions(...groups: FacilityGroup[]) {
+  const options = new Map<string, FacilityOption>();
+  groups.forEach(({ label, options: groupOptions }) => {
+    groupOptions.forEach((option) => {
+      if (!options.has(option.value)) options.set(option.value, { ...option, group: label });
+    });
+  });
+  return Array.from(options.values());
 }
 
 function resizeMixedUseFloorPlan(
-  plan: Record<string, number>[],
+  plan: Array<Record<string, number | string>>,
   floorCount: number,
   components: string[],
-) {
+): MixedUseFloorDraft[] {
   const safeFloorCount = Number.isInteger(floorCount) && floorCount > 0
     ? Math.min(floorCount, 100)
     : 0;
@@ -101,11 +109,39 @@ function resizeMixedUseFloorPlan(
     const currentFloor = plan[floorIndex] ?? {};
     return Object.fromEntries(components.map((component) => [
       component,
-      currentFloor[component] ?? 0,
+      String(currentFloor[component] ?? 0),
     ]));
   });
 }
 
+function normalizedMixedUseFloorPlan(plan: MixedUseFloorDraft[], components: string[]) {
+  return plan.map((floor) => Object.fromEntries(
+    components.map((component) => [component, Number(floor[component] ?? 0)]),
+  ));
+}
+
+function isMixedUseFloorPlanComplete(
+  plan: MixedUseFloorDraft[],
+  floorCount: number,
+  components: string[],
+) {
+  if (!components.length || !Number.isInteger(floorCount) || floorCount < 1 || floorCount > 100 || plan.length !== floorCount) {
+    return false;
+  }
+
+  return components.every((component) => {
+    const counts = plan.map((floor) => floor[component]);
+    return counts.every((value) => value.trim() !== '' && Number.isInteger(Number(value)) && Number(value) >= 0)
+      && counts.reduce((total, value) => total + Number(value), 0) > 0;
+  });
+}
+
+function plannedMixedUseSpaceCount(plan: MixedUseFloorDraft[], components: string[]) {
+  return plan.reduce((total, floor) => total + components.reduce(
+    (floorTotal, component) => floorTotal + (Number(floor[component]) || 0),
+    0,
+  ), 0);
+}
 function categoryForType(type: string | null | undefined): PropertyCategory | '' {
   if (type && PROPERTY_TYPES_BY_CATEGORY.residential.some((option) => option.value === type) || ['single_family', 'condo', 'townhouse'].includes(type ?? '')) return 'residential';
   if (type && PROPERTY_TYPES_BY_CATEGORY.commercial.some((option) => option.value === type) || type === 'commercial' || type === 'mixed_use') return 'commercial';
@@ -219,6 +255,7 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
   const [officeFloor, setOfficeFloor] = useState('');
   const [commercialSpaceType, setCommercialSpaceType] = useState('');
   const [mixedUseComponents, setMixedUseComponents] = useState<string[]>([]);
+  const [mixedUseFloorPlan, setMixedUseFloorPlan] = useState<MixedUseFloorDraft[]>([]);
   const [facilities, setFacilities] = useState<string[]>([]);
   const [customFacilities, setCustomFacilities] = useState<string[]>([]);
   const [customFacility, setCustomFacility] = useState('');
@@ -271,7 +308,13 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
     setOfficeInBuilding(typeof savedOfficeInBuilding === 'boolean' ? savedOfficeInBuilding : null);
     setOfficeFloor(readExtra(property, 'office_floor'));
     setCommercialSpaceType(readExtra(property, 'commercial_space_type'));
-    setMixedUseComponents(property?.mixed_use_components ?? []);
+    const savedMixedUseComponents = property?.mixed_use_components ?? [];
+    setMixedUseComponents(savedMixedUseComponents);
+    setMixedUseFloorPlan(resizeMixedUseFloorPlan(
+      property?.mixed_use_floor_plan ?? [],
+      Number(readExtra(property, 'floor_count')),
+      savedMixedUseComponents,
+    ));
     const savedCapacities = property?.floor_unit_counts ?? [];
     let capacities = savedCapacities.map(String);
     if (!capacities.length && Number(readExtra(property, 'floor_count')) > 0) capacities = Array.from({ length: Math.min(Number(readExtra(property, 'floor_count')), 100) }, () => '');
@@ -316,20 +359,44 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
   const researchFacility = subtype === 'research_development_facility';
   const industrialBuildingSubtype = warehouse || distributionCenter || researchFacility;
   const propertyCanRent = supportsPropertyRental(subtype);
-  const selectedFacilities = useMemo(() => new Set(facilities), [facilities]);
   const sharedFacilityOptions = useMemo(() => {
     if (mixedUse) {
-      const options: Array<readonly FacilityOption[]> = [];
-      if (mixedUseComponents.includes('apartment')) options.push(HOME_FACILITIES, APARTMENT_BUILDING_FACILITIES);
-      if (mixedUseComponents.includes('office')) options.push(COMMERCIAL_FACILITIES, OFFICE_FACILITIES);
-      if (mixedUseComponents.includes('retail_store')) options.push(COMMERCIAL_FACILITIES, RETAIL_CENTER_FACILITIES, RETAIL_UNIT_FACILITIES);
-      if (mixedUseComponents.includes('restaurant_hospitality')) options.push(COMMERCIAL_FACILITIES, HOSPITALITY_FACILITIES);
-      if (mixedUseComponents.includes('warehouse')) options.push(COMMERCIAL_FACILITIES, WAREHOUSE_FACILITIES);
-      return uniqueFacilityOptions(...options);
+      const groups: FacilityGroup[] = [];
+      if (mixedUseComponents.includes('apartment')) {
+        groups.push({ label: 'Residential', options: HOME_FACILITIES });
+        groups.push({ label: 'Apartment building', options: APARTMENT_BUILDING_FACILITIES });
+      }
+      if (mixedUseComponents.includes('office')) {
+        groups.push({ label: 'Shared commercial', options: COMMERCIAL_FACILITIES });
+        groups.push({ label: 'Office spaces', options: OFFICE_FACILITIES });
+      }
+      if (mixedUseComponents.includes('retail_store')) {
+        groups.push({ label: 'Shared commercial', options: COMMERCIAL_FACILITIES });
+        groups.push({ label: 'Retail', options: RETAIL_CENTER_FACILITIES });
+        groups.push({ label: 'Retail spaces', options: RETAIL_UNIT_FACILITIES });
+      }
+      if (mixedUseComponents.includes('restaurant_hospitality')) {
+        groups.push({ label: 'Shared commercial', options: COMMERCIAL_FACILITIES });
+        groups.push({ label: 'Hospitality', options: HOSPITALITY_FACILITIES });
+      }
+      if (mixedUseComponents.includes('warehouse')) {
+        groups.push({ label: 'Shared commercial', options: COMMERCIAL_FACILITIES });
+        groups.push({ label: 'Warehouse', options: WAREHOUSE_FACILITIES });
+      }
+      return groupedFacilityOptions(...groups);
     }
-    if (officeBuilding) return uniqueFacilityOptions(COMMERCIAL_FACILITIES, OFFICE_FACILITIES);
-    if (retailCenter) return uniqueFacilityOptions(COMMERCIAL_FACILITIES, RETAIL_CENTER_FACILITIES);
-    if (hospitalitySpace) return uniqueFacilityOptions(COMMERCIAL_FACILITIES, HOSPITALITY_FACILITIES);
+    if (officeBuilding) return groupedFacilityOptions(
+      { label: 'Shared commercial', options: COMMERCIAL_FACILITIES },
+      { label: 'Office building', options: OFFICE_FACILITIES },
+    );
+    if (retailCenter) return groupedFacilityOptions(
+      { label: 'Shared commercial', options: COMMERCIAL_FACILITIES },
+      { label: 'Retail center', options: RETAIL_CENTER_FACILITIES },
+    );
+    if (hospitalitySpace) return groupedFacilityOptions(
+      { label: 'Shared commercial', options: COMMERCIAL_FACILITIES },
+      { label: 'Hospitality', options: HOSPITALITY_FACILITIES },
+    );
     if (industrial) {
       const industrialOptions = subtype === 'warehouse'
         ? WAREHOUSE_FACILITIES
@@ -338,10 +405,16 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
           : subtype === 'manufacturing_plant'
             ? MANUFACTURING_PLANT_FACILITIES
             : RESEARCH_FACILITY_FACILITIES;
-      return uniqueFacilityOptions(INDUSTRIAL_SHARED_FACILITIES, industrialOptions);
+      return groupedFacilityOptions(
+        { label: 'Shared industrial', options: INDUSTRIAL_SHARED_FACILITIES },
+        { label: PROPERTY_TYPES_BY_CATEGORY.industrial.find((type) => type.value === subtype)?.label ?? 'Property type', options: industrialOptions },
+      );
     }
-    if (apartment || multifamily) return uniqueFacilityOptions(HOME_FACILITIES, APARTMENT_BUILDING_FACILITIES);
-    return [...HOME_FACILITIES];
+    if (apartment || multifamily) return groupedFacilityOptions(
+      { label: 'Residential', options: HOME_FACILITIES },
+      { label: 'Apartment building', options: APARTMENT_BUILDING_FACILITIES },
+    );
+    return groupedFacilityOptions({ label: 'Home', options: HOME_FACILITIES });
   }, [mixedUse, mixedUseComponents, officeBuilding, retailCenter, hospitalitySpace, industrial, subtype, apartment, multifamily]);
   const propertyFacilities = useMemo(
     () => facilities.filter((facility) => sharedFacilityOptions.some((option) => option.value === facility)),
@@ -367,12 +440,13 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
     office_floor: officeBuilding && officeInBuilding ? Number(officeFloor) : null,
     commercial_space_type: retailCenter || hospitalitySpace ? commercialSpaceType || null : null,
     mixed_use_components: mixedUse ? mixedUseComponents : [],
+    mixed_use_floor_plan: mixedUse ? normalizedMixedUseFloorPlan(mixedUseFloorPlan, mixedUseComponents) : [],
     is_rented: propertyCanRent ? Boolean(rented) : false,
     monthly_rent: propertyCanRent && rented ? Number(renter.monthly_rent) || null : null,
     lease_term_type: propertyCanRent && rented ? renter.lease_term_type : null,
     lease_start_date: propertyCanRent && rented ? renter.lease_start_date || null : null,
     lease_end_date: propertyCanRent && rented && renter.lease_term_type === 'fixed' ? renter.lease_end_date || null : null,
-  }), [property, form, category, subtype, multifamily, apartment, singleFamily, officeBuilding, officeInBuilding, officeFloor, retailCenter, hospitalitySpace, commercialSpaceType, mixedUse, mixedUseComponents, propertyCanRent, floorCount, floorCapacities, roomCount, propertyFacilities, customFacilities, rented, renter]);
+  }), [property, form, category, subtype, multifamily, apartment, singleFamily, officeBuilding, officeInBuilding, officeFloor, retailCenter, hospitalitySpace, commercialSpaceType, mixedUse, mixedUseComponents, mixedUseFloorPlan, propertyCanRent, floorCount, floorCapacities, roomCount, propertyFacilities, customFacilities, rented, renter]);
   const inlineOwnerData = useMemo(() => {
     const syntheticContacts: Contact[] = [];
     const relations: ContactPropertyRelationship[] = [];
@@ -431,9 +505,13 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
     property_id: previewProperty.id,
   })), [pendingUnits, previewProperty.id]);
   const configuredUnits = Number(previewProperty.units_count) || 0;
-  const inlineUnitLimitReached = configuredUnits > 0 && inlineUnitRecords.length >= configuredUnits;
+  const mixedUsePlannedSpaces = plannedMixedUseSpaceCount(mixedUseFloorPlan, mixedUseComponents);
+  const mixedUsePlanReady = isMixedUseFloorPlanComplete(mixedUseFloorPlan, Number(floorCount), mixedUseComponents);
+  const inlineUnitLimitReached = mixedUse
+    ? mixedUsePlanReady && inlineUnitRecords.length >= mixedUsePlannedSpaces
+    : configuredUnits > 0 && inlineUnitRecords.length >= configuredUnits;
   const inlineLayoutReady = mixedUse
-    ? mixedUseComponents.length > 0 && Number.isInteger(Number(floorCount)) && Number(floorCount) > 0
+    ? mixedUsePlanReady
     : configuredUnits > 0 && Number.isInteger(configuredUnits)
     && (!apartment || (
       Number(floorCount) > 0
@@ -443,6 +521,39 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
     ));
 
   const setField = (key: keyof PropertyDraft, value: PropertyDraft[keyof PropertyDraft]) => setForm((current) => ({ ...current, [key]: value }));
+  const selectCategory = (value: string) => {
+    const nextCategory = value as PropertyCategory;
+    setCategory(nextCategory);
+    setField('property_category', nextCategory);
+    setField('property_type', '');
+    setField('units_count', null);
+    setFloorCount('');
+    setFloorCapacities([]);
+    setPendingUnits([]);
+    setOfficeInBuilding(null);
+    setOfficeFloor('');
+    setCommercialSpaceType('');
+    setMixedUseComponents([]);
+    setMixedUseFloorPlan([]);
+    setFacilities([]);
+    setCustomFacilities([]);
+    clearIndustrialFields();
+  };
+  const selectSubtype = (value: string) => {
+    setField('property_type', value);
+    setField('units_count', null);
+    setFloorCount('');
+    setFloorCapacities([]);
+    setPendingUnits([]);
+    setOfficeInBuilding(null);
+    setOfficeFloor('');
+    setCommercialSpaceType('');
+    setMixedUseComponents([]);
+    setMixedUseFloorPlan([]);
+    setFacilities([]);
+    setCustomFacilities([]);
+    clearIndustrialFields();
+  };
   const clearIndustrialFields = () => {
     setField('industrial_in_building', null);
     setField('industrial_floor', null);
@@ -457,18 +568,29 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
   const updateIndustrialTags = (key: IndustrialArrayField, value: string[]) => setField(key, value);
   const setOwner = (index: number, patch: Partial<OwnerDraft>) => setOwners((current) => current.map((owner, i) => i === index ? { ...owner, ...patch } : owner));
   const setRenterFields = (patch: Partial<PropertyRenterDraft>) => setRenter((current) => ({ ...current, ...patch }));
-  const toggleFacility = (facility: string) => setFacilities((current) => current.includes(facility) ? current.filter((item) => item !== facility) : [...current, facility]);
   const toggleMixedUseComponent = (component: string) => {
     const nextComponents = mixedUseComponents.includes(component)
       ? mixedUseComponents.filter((value) => value !== component)
       : [...mixedUseComponents, component];
     setMixedUseComponents(nextComponents);
+    setMixedUseFloorPlan((current) => resizeMixedUseFloorPlan(current, Number(floorCount), nextComponents));
     setOwners((current) => current.map((owner) => ({
       ...owner,
       ownership_scope: mixedUseOwnershipScopeValues(owner.ownership_scope)
         .filter((value) => nextComponents.includes(value))
         .join(','),
     })));
+  };
+  const updateMixedUseFloorCount = (value: string) => {
+    setFloorCount(value);
+    if (value !== '') {
+      setMixedUseFloorPlan((current) => resizeMixedUseFloorPlan(current, Number(value), mixedUseComponents));
+    }
+  };
+  const updateMixedUseFloorPlanCount = (floorIndex: number, component: string, value: string) => {
+    setMixedUseFloorPlan((current) => current.map((floor, index) => index === floorIndex
+      ? { ...floor, [component]: value }
+      : floor));
   };
   const toggleOwnerMixedUseScope = (ownerIndex: number, component: string) => {
     const selected = mixedUseOwnershipScopeValues(owners[ownerIndex]?.ownership_scope);
@@ -537,23 +659,52 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
       if (!floorCount.trim() || !Number.isInteger(Number(floorCount)) || Number(floorCount) <= 0) {
         next.floor_count = 'Enter a whole-number floor count greater than 0.';
       }
+      const floorTotal = Number(floorCount);
+      if (Number.isInteger(floorTotal) && floorTotal > 0 && floorTotal <= 100 && mixedUseComponents.length) {
+        if (mixedUseFloorPlan.length !== floorTotal) {
+          next.mixed_use_floor_plan = 'Add a count for each selected use on every floor.';
+        } else if (mixedUseFloorPlan.some((floor) => mixedUseComponents.some((component) =>
+          floor[component] === undefined
+          || floor[component].trim() === ''
+          || !Number.isInteger(Number(floor[component]))
+          || Number(floor[component]) < 0,
+        ))) {
+          next.mixed_use_floor_plan = 'Enter a whole-number count of 0 or more for every use on each floor.';
+        } else if (mixedUseComponents.some((component) => mixedUseFloorPlan.reduce(
+          (total, floor) => total + Number(floor[component] || 0),
+          0,
+        ) < 1)) {
+          next.mixed_use_floor_plan = 'Each selected use needs at least one space across the building.';
+        }
+      } else if (Number.isInteger(floorTotal) && floorTotal > 100) {
+        next.floor_count = 'A mixed-use property can have no more than 100 floors.';
+      }
       const mixedUnits = property
         ? existingUnits
         : pendingUnits.map((item) => item.draft);
-      const unitTypes = new Set(mixedUnits.map((unit) => unit.unit_type).filter(Boolean));
       if (!property && pendingUnits.some(({ draft }) => draft.unit_type && !mixedUseComponents.includes(draft.unit_type))) {
         next.inline_units = 'Remove pending spaces for uses you unchecked, or select those uses again.';
-      } else if (!property && mixedUseComponents.some((component) => !unitTypes.has(component))) {
-        next.inline_units = 'Add at least one mapped unit for every selected use.';
       }
       if (property && existingUnits.some((unit) => unit.unit_type && !mixedUseComponents.includes(unit.unit_type))) {
         next.inline_units = 'Remove or reclassify every space for a use before removing that use.';
       }
-      const floorTotal = Number(floorCount);
       if (Number.isInteger(floorTotal) && floorTotal > 0 && mixedUnits.some((unit) =>
         unit.floor === null || !Number.isInteger(unit.floor) || unit.floor < 0 || unit.floor >= floorTotal,
       )) {
         next.inline_floor = 'Every unit must be assigned to a floor within this property.';
+      }
+      if (isMixedUseFloorPlanComplete(mixedUseFloorPlan, floorTotal, mixedUseComponents)) {
+        const assignedByFloorAndType = new Map<string, number>();
+        mixedUnits.forEach((unit) => {
+          if (unit.floor === null || !unit.unit_type || !mixedUseComponents.includes(unit.unit_type)) return;
+          const key = `${unit.floor}:${unit.unit_type}`;
+          assignedByFloorAndType.set(key, (assignedByFloorAndType.get(key) ?? 0) + 1);
+        });
+        const exceedsPlan = Array.from(assignedByFloorAndType.entries()).some(([key, count]) => {
+          const [floor, component] = key.split(':');
+          return count > Number(mixedUseFloorPlan[Number(floor)]?.[component] ?? 0);
+        });
+        if (exceedsPlan) next.inline_floor_capacity = 'The spaces already added exceed the planned count for a use on at least one floor.';
       }
       if (pendingUnits.length) {
         const currentOwnerRefs = owners.map((owner) => owner.source === 'new'
@@ -610,7 +761,7 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
       }
     }
     return next;
-  }, [form, subtype, singleFamily, multifamily, apartment, commercial, industrial, officeBuilding, officeInBuilding, officeFloor, retailCenter, hospitalitySpace, commercialSpaceType, mixedUse, mixedUseComponents, property, existingUnits, propertyCanRent, roomCount, floorCount, floorCapacities, owners, rented, renter, pendingUnits, industrialBuildingSubtype, warehouse, distributionCenter, manufacturingPlant, researchFacility, propertyFacilities, customFacilities]);
+  }, [form, subtype, singleFamily, multifamily, apartment, commercial, industrial, officeBuilding, officeInBuilding, officeFloor, retailCenter, hospitalitySpace, commercialSpaceType, mixedUse, mixedUseComponents, mixedUseFloorPlan, property, existingUnits, propertyCanRent, roomCount, floorCount, floorCapacities, owners, rented, renter, pendingUnits, industrialBuildingSubtype, warehouse, distributionCenter, manufacturingPlant, researchFacility, propertyFacilities, customFacilities]);
 
   const canSave = Object.keys(validation).length === 0 && !saving;
   const save = async () => {
@@ -638,6 +789,7 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
       office_floor: officeBuilding && officeInBuilding ? Number(officeFloor) : null,
       commercial_space_type: retailCenter || hospitalitySpace ? commercialSpaceType : null,
       mixed_use_components: mixedUse ? mixedUseComponents : [],
+      mixed_use_floor_plan: mixedUse ? normalizedMixedUseFloorPlan(mixedUseFloorPlan, mixedUseComponents) : [],
       industrial_in_building: industrialBuildingSubtype ? form.industrial_in_building : null,
       industrial_floor: industrialBuildingSubtype && form.industrial_in_building ? Number(form.industrial_floor) : null,
       warehouse_goods: warehouse ? form.warehouse_goods ?? [] : [],
@@ -698,39 +850,18 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
             <div className="sm:col-span-2"><Field label="Property name" required><input autoFocus data-testid="input-property-name" className={inputClass} value={form.name} onChange={(event) => setField('name', event.target.value)} placeholder="e.g. Harbor View Residences" /></Field><FormError message={validation.name} testId="error-property-name" /></div>
             <div className="sm:col-span-2">
               <Field label="Property type" required>
-                <div data-testid="select-property-category" className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="group" aria-label="Property type">
-                  {PROPERTY_CATEGORIES.map((option) => {
-                    const selected = category === option.value;
-                    return <button
-                      key={option.value}
-                      type="button"
-                      data-testid={`button-property-category-${option.value}`}
-                      aria-pressed={selected}
-                      onClick={() => {
-                        setCategory(option.value);
-                        setField('property_category', option.value);
-                        setField('property_type', '');
-                        setField('units_count', null);
-                        setFloorCount('');
-                        setFloorCapacities([]);
-                        setPendingUnits([]);
-                        setOfficeInBuilding(null);
-                        setOfficeFloor('');
-                        setCommercialSpaceType('');
-                        setMixedUseComponents([]);
-                        clearIndustrialFields();
-                      }}
-                      className={`min-h-10 rounded-[9px] border px-3 text-left text-[12px] font-semibold transition-colors ${selected ? 'border-[#97ad9b] bg-[#eff4ee] text-[#455c4b]' : 'border-[#e4e2de] bg-white text-[#625e57] hover:border-[#cbd7ce] hover:bg-[#f8faf7]'}`}
-                    >
-                      {option.label}
-                    </button>;
-                  })}
-                </div>
+                <FlowPointSelect
+                  testId="select-property-category"
+                  value={category}
+                  onChange={selectCategory}
+                  placeholder="Choose a property type"
+                  options={PROPERTY_CATEGORIES.map((option) => ({ value: option.value, label: option.label }))}
+                />
               </Field>
             </div>
             {category && <div className="sm:col-span-2">
               <Field label={`${PROPERTY_CATEGORIES.find((option) => option.value === category)?.label ?? 'Property'} subtype`} required>
-                <FlowPointSelect testId="select-property-subtype" value={subtype} onChange={(value) => { setField('property_type', value); setField('units_count', null); setFloorCount(''); setFloorCapacities([]); setPendingUnits([]); setOfficeInBuilding(null); setOfficeFloor(''); setCommercialSpaceType(''); setMixedUseComponents([]); clearIndustrialFields(); }} placeholder="Choose a subtype" options={[...PROPERTY_TYPES_BY_CATEGORY[category]]} />
+                <FlowPointSelect testId="select-property-subtype" value={subtype} onChange={selectSubtype} placeholder="Choose a subtype" options={[...PROPERTY_TYPES_BY_CATEGORY[category]]} />
               </Field>
             </div>}
             <div className="sm:col-span-2"><FormError message={validation.subtype} testId="error-property-subtype" /></div>
@@ -808,10 +939,41 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
                           <FormError message={validation.mixed_use_components} />
                         </div>
                         <div className="mt-4 max-w-[260px]">
-                          <Field label="Number of floors" required><input data-testid="input-property-floor-count" className={inputClass} type="number" min="1" step="1" value={floorCount} onChange={(event) => setFloorCount(event.target.value)} placeholder="e.g. 6" /></Field>
+                          <Field label="Number of floors" required><input data-testid="input-property-floor-count" className={inputClass} type="number" min="1" max="100" step="1" value={floorCount} onChange={(event) => updateMixedUseFloorCount(event.target.value)} placeholder="e.g. 3" /></Field>
                           <FormError message={validation.floor_count} />
                         </div>
-                        <p className="mt-3 rounded-[9px] bg-[#f6f5f1] px-3 py-2.5 text-[10px] leading-4 text-[#817d75]">Each space is added below with its type and building floor, plus its own owners, renter, lease, and facilities.</p>
+                        <div className="mt-4 rounded-[11px] border border-[#e8e5de] bg-[#f8f7f4] p-3.5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div><p className="text-[11px] font-semibold text-[#48463f]">Spaces on each floor</p><p className="mt-1 text-[10px] leading-4 text-[#929087]">Enter how many of each selected use exist on every floor. Ground floor is floor 0.</p></div>
+                            <span data-testid="text-mixed-use-planned-space-total" className="shrink-0 rounded-full bg-white px-2.5 py-1 font-mono text-[10px] text-[#6d7f72]">{mixedUsePlannedSpaces} planned spaces</span>
+                          </div>
+                          {mixedUseFloorPlan.length > 0 && mixedUseComponents.length > 0 && <div className="mt-3 space-y-2">
+                            {mixedUseFloorPlan.map((floor, floorIndex) => (
+                              <div key={floorIndex} data-testid={`card-mixed-use-floor-${floorIndex}`} className="rounded-[9px] border border-[#ebe8e2] bg-white p-3">
+                                <p className="mb-2 text-[10px] font-semibold text-[#5b5851]">{floorIndex === 0 ? 'Ground floor · 0' : `Floor ${floorIndex}`}</p>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  {mixedUseComponents.map((component) => {
+                                    const componentLabel = MIXED_USE_COMPONENTS.find((option) => option.value === component)?.label ?? component;
+                                    return <Field key={component} label={componentLabel}>
+                                      <input
+                                        data-testid={`input-mixed-use-floor-${floorIndex}-${component}`}
+                                        className={inputClass}
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={floor[component] ?? ''}
+                                        onChange={(event) => updateMixedUseFloorPlanCount(floorIndex, component, event.target.value)}
+                                        placeholder="0"
+                                      />
+                                    </Field>;
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>}
+                          <FormError message={validation.mixed_use_floor_plan} testId="error-mixed-use-floor-plan" />
+                          <p className="mt-2 text-[10px] leading-4 text-[#817d75]">This plan records the building’s full space count. You can add detailed records for individual spaces below or later.</p>
+                        </div>
                       </>}
                     </section>}
 
@@ -876,13 +1038,8 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
                     {(singleFamily || multifamily || apartment || commercial || mixedUse || industrial) && (
                       <section className="mb-7" data-testid="section-property-facilities">
                         <SectionHeading index="02" eyebrow="Shared spaces" title="Facilities & features" description={mixedUse ? 'Select shared facilities for the uses included in this property. You can also add a facility that isn’t listed.' : commercial || industrial ? 'Select the facilities available at this property. You can also add a facility that isn’t listed.' : apartment ? 'Select the building amenities and any home-style shared facilities.' : 'Select what’s available. You can add a facility that isn’t listed.'} />
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                          {sharedFacilityOptions.map((facility) => {
-                            const checked = selectedFacilities.has(facility.value);
-                            return <button key={facility.value} type="button" data-testid={`button-facility-${facility.value}`} aria-pressed={checked} onClick={() => toggleFacility(facility.value)} className={`flex min-h-10 items-center gap-2 rounded-[9px] border px-3 text-left text-[11px] font-medium transition-colors ${checked ? 'border-[#b9cabe] bg-[#edf4ee] text-[#4d6a59]' : 'border-[#e7e4de] bg-white text-[#69665f] hover:border-[#ccd7ce] hover:bg-[#f8faf7]'}`}><span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${checked ? 'border-[#63816e] bg-[#63816e] text-white' : 'border-[#d5d2ca] bg-white'}`}>{checked && <Check size={11} />}</span>{facility.label}</button>;
-                          })}
-                        </div>
-                         <FormError message={validation.facilities} testId="error-property-facilities" />
+                        <FacilityPicker options={sharedFacilityOptions} value={propertyFacilities} onChange={setFacilities} testId="property-facility-picker" />
+                        <FormError message={validation.facilities} testId="error-property-facilities" />
                         <div className="mt-3 flex gap-2"><input data-testid="input-property-custom-facility" className={inputClass} value={customFacility} onChange={(event) => setCustomFacility(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (customFacility.trim() && !customFacilities.includes(customFacility.trim())) setCustomFacilities((current) => [...current, customFacility.trim()]); setCustomFacility(''); } }} placeholder="Add another facility" /><button type="button" data-testid="button-add-custom-facility" onClick={() => { if (customFacility.trim() && !customFacilities.includes(customFacility.trim())) setCustomFacilities((current) => [...current, customFacility.trim()]); setCustomFacility(''); }} disabled={!customFacility.trim()} className="flex h-10 shrink-0 items-center gap-1.5 rounded-[9px] border border-[#dcd9d2] px-3 text-[11px] font-semibold text-[#66635b] transition-colors hover:bg-[#f3f2ee] disabled:cursor-not-allowed disabled:opacity-45"><Plus size={13} />Add</button></div>
                         {customFacilities.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{customFacilities.map((facility) => <span key={facility} data-testid={`chip-custom-facility-${facility}`} className="inline-flex items-center gap-1 rounded-full bg-[#eaf0e9] px-2.5 py-1 text-[10px] text-[#526d5b]">{facility}<button type="button" data-testid={`button-remove-facility-${facility}`} aria-label={`Remove ${facility}`} onClick={() => setCustomFacilities((current) => current.filter((item) => item !== facility))}><X size={11} /></button></span>)}</div>}
                       </section>
@@ -933,15 +1090,15 @@ export default function PropertySetupForm({ property, contacts, initialOwners, i
                 )}
                 {!property && (multifamily || apartment || mixedUse) && (
                   <section className="mt-7 border-t border-[#e9e6e0] pt-6" data-testid="section-property-inline-units">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                      <div><p className="text-[12px] font-semibold text-[#37362f]">{mixedUse ? 'Map the spaces by floor' : 'Add units now'}</p><p className="mt-1 text-[10px] leading-4 text-[#969188]">{mixedUse ? 'Add at least one unit for each selected use and assign it to a floor.' : 'Set up homes here, or create the property first and add units from its card.'}</p></div>
-                      <span data-testid="text-inline-unit-count" className="rounded-full bg-[#f0f2ec] px-2.5 py-1 text-[10px] font-semibold text-[#617565]">{mixedUse ? `${inlineUnitRecords.length} spaces` : `${inlineUnitRecords.length} / ${configuredUnits || '—'} units`}</span>
+                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                       <div><p className="text-[12px] font-semibold text-[#37362f]">{mixedUse ? 'Add detailed space records' : 'Add units now'}</p><p className="mt-1 text-[10px] leading-4 text-[#969188]">{mixedUse ? 'The floor plan above sets the building’s counts. Add individual spaces now, or create them later from the property card.' : 'Set up homes here, or create the property first and add units from its card.'}</p></div>
+                       <span data-testid="text-inline-unit-count" className="rounded-full bg-[#f0f2ec] px-2.5 py-1 text-[10px] font-semibold text-[#617565]">{mixedUse ? `${inlineUnitRecords.length} / ${mixedUsePlannedSpaces} planned spaces` : `${inlineUnitRecords.length} / ${configuredUnits || '—'} units`}</span>
                     </div>
-                    {!inlineLayoutReady && <p className="mb-3 rounded-[9px] bg-[#f6f5f1] px-3 py-2 text-[10px] text-[#8d8981]">{mixedUse ? 'Choose at least one included use and set the number of floors above.' : apartment ? 'Set the total units and floor capacities above before adding apartment records.' : 'Set the total number of units above before adding homes.'}</p>}
+                     {!inlineLayoutReady && <p className="mb-3 rounded-[9px] bg-[#f6f5f1] px-3 py-2 text-[10px] text-[#8d8981]">{mixedUse ? 'Select at least one use, set the floor count, and enter a count for each use on every floor above.' : apartment ? 'Set the total units and floor capacities above before adding apartment records.' : 'Set the total number of units above before adding homes.'}</p>}
                     {inlineUnitRecords.length > 0 ? <div className="mb-3 space-y-2">{inlineUnitRecords.map((unit, index) => <article key={`${unit.unit_number}-${index}`} data-testid={`card-inline-unit-${index}`} className="flex items-center justify-between gap-3 rounded-[10px] border border-[#e7e4de] bg-white px-3 py-2.5"><div className="min-w-0"><p className="truncate text-[11px] font-semibold text-[#45433c]">{unit.unit_number}</p><p className="mt-0.5 text-[10px] text-[#969188]">{mixedUse ? `${unitTypeLabel(unit.unit_type)} · ${unit.floor === 0 ? 'Ground floor' : `Floor ${unit.floor}`}` : apartment ? unit.floor === 0 ? 'Ground floor' : `Floor ${unit.floor}` : `${unit.floor_count} interior floor${unit.floor_count === 1 ? '' : 's'}`} {!mixedUse && `· ${unit.room_count} rooms`}</p></div><button type="button" data-testid={`button-remove-inline-unit-${index}`} onClick={() => setPendingUnits((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove unit ${unit.unit_number}`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#938e85] hover:bg-[#fbefed] hover:text-[#a33e34]"><Trash2 size={13} /></button></article>)}</div> : <p className="mb-3 rounded-[10px] border border-dashed border-[#d8d5ce] px-3 py-4 text-center text-[10px] text-[#9a958d]">No units added yet.</p>}
                     <FormError message={validation.inline_units || validation.inline_floor_capacity || validation.inline_floor} />
-                    <button type="button" data-testid="button-add-inline-unit" disabled={!inlineLayoutReady || inlineUnitLimitReached} onClick={() => setUnitEditorOpen(true)} className="flex h-9 items-center gap-2 rounded-[9px] border border-dashed border-[#d8d5ce] px-3 text-[11px] font-semibold text-[#6f6b63] transition-colors hover:border-[#aebcaf] hover:bg-[#f3f6f1] hover:text-[#4f6d58] disabled:cursor-not-allowed disabled:opacity-45"><Plus size={13} />{inlineUnitLimitReached ? 'Unit limit reached' : mixedUse ? 'Add a space' : 'Add a unit'}</button>
-                    {!inlineLayoutReady && <p className="mt-2 text-[10px] text-[#9a958d]">{mixedUse ? 'Choose at least one use and set the number of floors first.' : apartment ? 'Enter the total unit count and valid capacity for every floor first.' : 'Enter the total unit count first.'}</p>}
+                     <button type="button" data-testid="button-add-inline-unit" disabled={!inlineLayoutReady || inlineUnitLimitReached} onClick={() => setUnitEditorOpen(true)} className="flex h-9 items-center gap-2 rounded-[9px] border border-dashed border-[#d8d5ce] px-3 text-[11px] font-semibold text-[#6f6b63] transition-colors hover:border-[#aebcaf] hover:bg-[#f3f6f1] hover:text-[#4f6d58] disabled:cursor-not-allowed disabled:opacity-45"><Plus size={13} />{inlineUnitLimitReached ? mixedUse ? 'Space limit reached' : 'Unit limit reached' : mixedUse ? 'Add a space' : 'Add a unit'}</button>
+                     {!inlineLayoutReady && <p className="mt-2 text-[10px] text-[#9a958d]">{mixedUse ? 'Complete the per-floor use counts above first.' : apartment ? 'Enter the total unit count and valid capacity for every floor first.' : 'Enter the total unit count first.'}</p>}
                   </section>
                 )}
                 {!residential && !commercial && !industrial && <div data-testid="text-property-basic-setup" className="rounded-[10px] border border-[#e7e4de] bg-white px-4 py-3 text-[11px] leading-5 text-[#817d75]">The location and property classification are ready. Additional setup for this property type will be available in a later step.</div>}
