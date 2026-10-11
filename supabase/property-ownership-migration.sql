@@ -5,9 +5,8 @@
 -- contacts are preserved.
 --
 -- Ownership is represented by the existing relationship_type = 'owner'.
--- ownership_percentage stores a percentage when the owner has a percentage
--- share; ownership_scope stores what part of the property the owner owns when
--- ownership is described by an area, unit, section, or other scope.
+-- ownership_percentage stores the owner's share; ownership_scope optionally
+-- records the units or uses that owner is associated with.
 
 begin;
 
@@ -35,22 +34,6 @@ begin
       not valid;
   end if;
 
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'contact_relationship_ownership_detail_check'
-  ) then
-    alter table public.contact_property_relationships
-      add constraint contact_relationship_ownership_detail_check
-      check (
-        relationship_type <> 'owner'
-        or not (
-          ownership_percentage is not null
-          and length(trim(coalesce(ownership_scope, ''))) > 0
-        )
-      )
-      not valid;
-  end if;
 end;
 $$;
 

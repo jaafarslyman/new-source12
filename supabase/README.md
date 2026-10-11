@@ -33,6 +33,10 @@ After the commercial migration, run `mixed-use-floor-plan-migration.sql`. It add
 
 After the commercial migration, run `industrial-properties-migration.sql` to add industrial subtype details, support industrial property rentals, and enforce subtype-specific data for warehouses, distribution centers, manufacturing plants, and R&D facilities. It is additive and preserves existing records. Its new checks are `NOT VALID` so existing rows do not block the migration; new and updated rows must satisfy them. Do not rerun `property-rebuild.sql` to add industrial support.
 
+After `industrial-properties-migration.sql`, run `industrial-distribution-operations-optional.sql` to make distribution operations optional for distribution centers. Distribution goods remain required.
+
+After `property-ownership-migration.sql`, run `property-owner-share-scope-migration.sql`. It allows an owner relationship to store both a percentage share and an apartment/use scope, without deleting relationship data.
+
 ## Optional automation webhooks
 
 These are only needed for their corresponding automation features:

@@ -64,11 +64,14 @@ function PropertyOwners({ property, contacts, ownerships }: { property: Property
     <div className="mb-3 flex items-center justify-between"><div><h3 className="text-[13px] font-semibold text-[#302d28]">Owners</h3><p className="mt-1 text-[11px] text-[#9a958d]">Contacts who own this property.</p></div><Users size={16} className="text-[#aaa59d]" /></div>
     {linked.length === 0 ? <p className="rounded-[10px] border border-dashed border-[#d9d5ce] px-4 py-6 text-center text-[11px] text-[#97928a]">No owners linked to this property.</p> : <div className="space-y-2">{linked.map((relationship) => {
       const contact = contacts.find((item) => item.id === relationship.contact_id);
+      const ownershipScope = relationship.ownership_scope
+        ? property.property_type === 'mixed_use_development'
+          ? mixedUseOwnershipScopeLabel(relationship.ownership_scope)
+          : relationship.ownership_scope
+        : null;
       const ownership = relationship.ownership_percentage !== null && relationship.ownership_percentage !== undefined
-        ? `${relationship.ownership_percentage}% ownership`
-        : property.property_type === 'mixed_use_development'
-          ? mixedUseOwnershipScopeLabel(relationship.ownership_scope) || 'Ownership details unavailable'
-          : relationship.ownership_scope || 'Ownership details unavailable';
+        ? `${relationship.ownership_percentage}% ownership${ownershipScope ? ` · ${ownershipScope}` : ''}`
+        : ownershipScope || 'Ownership details unavailable';
       return <div key={relationship.id} className="flex items-center justify-between gap-3 rounded-[10px] border border-[#f0eeeb] px-3 py-2.5"><div className="flex min-w-0 items-center gap-2.5"><div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#f1eee9] text-[#706b62]"><UserRound size={14} /></div><div className="min-w-0"><p className="truncate text-[12px] font-semibold text-[#35322e]">{contact?.name ?? 'Contact unavailable'}</p><p className="mt-0.5 truncate text-[10px] text-[#9b968d]">{contact?.email ?? contact?.phone ?? 'No contact details'}</p></div></div><span className="max-w-[45%] text-right text-[10px] font-semibold text-[#625e57]">{ownership}</span></div>;
     })}</div>}
   </section>;

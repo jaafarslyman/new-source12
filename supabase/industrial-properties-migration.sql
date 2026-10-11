@@ -79,7 +79,6 @@ alter table public.properties
         )
         and cardinality(warehouse_goods) = 0
         and cardinality(distribution_goods) > 0
-        and cardinality(distribution_services) > 0
         and cardinality(manufactured_products) = 0
         and cardinality(production_inputs) = 0
         and cardinality(research_focus) = 0
