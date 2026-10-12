@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircle,
+  ArrowLeft,
   BriefcaseBusiness,
   Building2,
   Check,
+  CheckCheck,
   ChevronRight,
   Clock3,
   Filter,
@@ -204,6 +206,162 @@ function ServiceForm({
   onSave: (draft: ServiceDraft, selected: { contactIds: string[]; staffIds: string[]; propertyIds: string[]; unitIds: string[] }) => Promise<void>;
   onClose: () => void;
 }) {
+  return <GuidedServiceForm service={service} relationships={relationships} contacts={contacts} staff={staff} properties={properties} units={units} onSave={onSave} onClose={onClose} />;
+}
+
+const SERVICE_CATEGORIES = ['Maintenance', 'Resident support', 'Leasing', 'Cleaning', 'Security', 'Landscaping', 'Utilities', 'Amenities', 'Other'];
+const SERVICE_STEPS = [
+  { title: 'Identity', caption: 'Name and describe the service' },
+  { title: 'Delivery', caption: 'Set expectations and guidance' },
+  { title: 'Coverage', caption: 'Assign people and places' },
+  { title: 'Review', caption: 'Confirm before saving' },
+];
+
+function categoryGuidance(category: string) {
+  const value = category.toLowerCase();
+  const general = {
+    short: 'A concise summary for the service catalog',
+    description: 'What the service provides, who it serves, and when the team delivers it.',
+    availabilityLabel: 'Availability / eligibility',
+    availability: 'Who can request this service and when it is available',
+    responseLabel: 'Typical response time',
+    response: 'e.g. Within one business day',
+    requirementsLabel: 'Requirements / eligibility',
+    requirements: 'Information or access needed before the service can be delivered',
+    includedLabel: 'What is included',
+    included: 'Work, support, or deliverables covered by this service',
+    excludedLabel: 'What is not included',
+    excluded: 'Boundaries, exceptions, and work handled separately',
+    escalationLabel: 'Escalation instructions',
+    escalation: 'When to escalate, and who should take over',
+  };
+
+  if (value.includes('maint') || value.includes('repair')) return {
+    ...general,
+    short: 'e.g. Routine and urgent repairs for resident spaces',
+    description: 'What work is covered, how requests are assessed, and what happens after intake.',
+    availabilityLabel: 'Service hours & coverage',
+    availability: 'Emergency vs. routine hours, eligible properties, and access requirements',
+    responseLabel: 'Response target',
+    response: 'e.g. Emergency calls acknowledged within 15 minutes',
+    requirementsLabel: 'Intake requirements',
+    requirements: 'Access details, photos, or resident availability needed before dispatch',
+    includedLabel: 'Repair work covered',
+    included: 'Diagnostics, labor, materials, and follow-up included in the service',
+    excludedLabel: 'Out-of-scope work',
+    escalationLabel: 'Urgent / escalation path',
+  };
+  if (value.includes('clean')) return {
+    ...general,
+    short: 'e.g. Scheduled common-area cleaning and turnover support',
+    description: 'Areas covered, visit cadence, and the standard the team should maintain.',
+    availabilityLabel: 'Visit schedule & access',
+    availability: 'Service days, access windows, and spaces included',
+    responseLabel: 'Scheduling lead time',
+    response: 'e.g. Schedule confirmed within one business day',
+    requirementsLabel: 'Site access & preparation',
+    requirements: 'Access arrangements or preparation needed before a visit',
+    includedLabel: 'Tasks included',
+    included: 'Rooms, surfaces, supplies, and tasks included in each visit',
+    excludedLabel: 'Out-of-scope tasks',
+    escalationLabel: 'Missed-visit / issue escalation',
+  };
+  if (value.includes('leasing') || value.includes('resident')) return {
+    ...general,
+    short: 'e.g. Guided move-in support for new residents',
+    description: 'Who this supports and the key moments where the team steps in.',
+    availabilityLabel: 'Eligibility & service hours',
+    availability: 'Eligibility, office hours, and channels residents can use',
+    responseLabel: 'Reply target',
+    response: 'e.g. Resident enquiries answered by the next business day',
+    requirementsLabel: 'Resident information required',
+    requirements: 'Documents or information a resident should have ready',
+    includedLabel: 'Support provided',
+    included: 'Support, coordination, and materials residents can expect',
+    excludedLabel: 'Support boundaries',
+  };
+  if (value.includes('security') || value.includes('access')) return {
+    ...general,
+    short: 'e.g. After-hours building access and incident response',
+    description: 'The situations covered, how requests are verified, and how the team responds.',
+    availabilityLabel: 'Coverage hours & access',
+    availability: 'Coverage hours, properties served, and urgent contact path',
+    responseLabel: 'Incident response target',
+    response: 'e.g. Urgent incidents routed to the on-call team immediately',
+    requirementsLabel: 'Verification information',
+    requirements: 'Identity, location, and incident details to collect before action',
+    includedLabel: 'Coverage included',
+    included: 'Monitoring, access coordination, and response actions within scope',
+    excludedLabel: 'Out-of-scope incidents',
+    escalationLabel: 'Emergency escalation path',
+  };
+  if (value.includes('landscap') || value.includes('grounds')) return {
+    ...general,
+    short: 'e.g. Seasonal grounds care and shared outdoor-area upkeep',
+    description: 'Outdoor areas covered, visit rhythm, and expected service standard.',
+    availabilityLabel: 'Schedule & seasonal coverage',
+    availability: 'Seasonal schedule, weather constraints, and covered properties',
+    responseLabel: 'Work request target',
+    response: 'e.g. Routine requests scheduled within three business days',
+    requirementsLabel: 'Site access / work details',
+    requirements: 'Access notes, priority areas, or photos to include with a request',
+    includedLabel: 'Maintenance tasks',
+    included: 'Grounds, routine visits, and seasonal tasks included',
+    excludedLabel: 'Out-of-scope work',
+    escalationLabel: 'Hazard / issue escalation',
+  };
+  if (value.includes('utilit') || value.includes('energy')) return {
+    ...general,
+    short: 'e.g. Utility account coordination for managed buildings',
+    description: 'Which utilities are supported and how the team handles coordination.',
+    availabilityLabel: 'Coverage & account types',
+    availability: 'Covered properties, account types, and support hours',
+    responseLabel: 'Resolution target',
+    response: 'e.g. Account enquiries acknowledged within one business day',
+    requirementsLabel: 'Account information',
+    requirements: 'Account reference, meter details, or authorization to have ready',
+    includedLabel: 'Coordination included',
+    included: 'Coordination, account guidance, and issue follow-up included',
+    excludedLabel: 'Out-of-scope support',
+    escalationLabel: 'Utility disruption escalation',
+  };
+  if (value.includes('amenit') || value.includes('facility')) return {
+    ...general,
+    short: 'e.g. Shared amenity reservations and access support',
+    description: 'Spaces supported, how access works, and what a resident can expect.',
+    availabilityLabel: 'Reservation windows & eligibility',
+    availability: 'Reservation windows, access hours, and eligible residents',
+    responseLabel: 'Booking confirmation target',
+    response: 'e.g. Booking requests confirmed within one business day',
+    requirementsLabel: 'Reservation information',
+    requirements: 'Reservation details, guest count, or access needs to provide',
+    includedLabel: 'Support included',
+    included: 'Booking coordination, access support, and standard reset included',
+    excludedLabel: 'Excluded amenities',
+    escalationLabel: 'Access / incident escalation',
+  };
+  return general;
+}
+
+function GuidedServiceForm({
+  service,
+  relationships,
+  contacts,
+  staff,
+  properties,
+  units,
+  onSave,
+  onClose,
+}: {
+  service: Service | null;
+  relationships: RelationshipState;
+  contacts: Contact[];
+  staff: Staff[];
+  properties: Property[];
+  units: Unit[];
+  onSave: (draft: ServiceDraft, selected: { contactIds: string[]; staffIds: string[]; propertyIds: string[]; unitIds: string[] }) => Promise<void>;
+  onClose: () => void;
+}) {
   const [form, setForm] = useState<ServiceDraft>(() => ({
     name: service?.name ?? '',
     category: service?.category ?? '',
@@ -220,181 +378,191 @@ function ServiceForm({
     escalation_instructions: service?.escalation_instructions ?? '',
     status: service?.status ?? 'active',
   }));
-  const [contactIds, setContactIds] = useState<string[]>(() => relationships.contacts.filter((item) => item.service_id === service?.id).map((item) => String(item.contact_id)));
-  const [staffIds, setStaffIds] = useState<string[]>(() => relationships.staff.filter((item) => item.service_id === service?.id).map((item) => String(item.staff_id)));
-  const [propertyIds, setPropertyIds] = useState<string[]>(() => relationships.properties.filter((item) => item.service_id === service?.id).map((item) => item.property_id));
-  const [unitIds, setUnitIds] = useState<string[]>(() => relationships.units.filter((item) => item.service_id === service?.id).map((item) => item.unit_id));
+  const [contactIds, setContactIds] = useState(() => relationships.contacts.filter((item) => item.service_id === service?.id).map((item) => String(item.contact_id)));
+  const [staffIds, setStaffIds] = useState(() => relationships.staff.filter((item) => item.service_id === service?.id).map((item) => String(item.staff_id)));
+  const [propertyIds, setPropertyIds] = useState(() => relationships.properties.filter((item) => item.service_id === service?.id).map((item) => item.property_id));
+  const [unitIds, setUnitIds] = useState(() => relationships.units.filter((item) => item.service_id === service?.id).map((item) => item.unit_id));
   const [contactToAdd, setContactToAdd] = useState('');
   const [staffToAdd, setStaffToAdd] = useState('');
   const [propertyToAdd, setPropertyToAdd] = useState('');
   const [unitToAdd, setUnitToAdd] = useState('');
-  const [detailsOpen, setDetailsOpen] = useState(Boolean(service));
-  const [customerOpen, setCustomerOpen] = useState(Boolean(service));
+  const [step, setStep] = useState(0);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const set = <K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]) =>
+  const [saveError, setSaveError] = useState('');
+  const guidance = categoryGuidance(form.category);
+  const set = <K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
-
-  const submit = async () => {
-    if (!form.name.trim()) {
-      setError('Service name is required');
-      return;
-    }
-    if (!form.category.trim()) {
-      setError('Category is required');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(
-        {
-          ...form,
-          name: form.name.trim(),
-          category: form.category.trim(),
-          short_description: form.short_description?.trim() || null,
-          description: form.description?.trim() || null,
-          customer_facing_description: form.customer_facing_description?.trim() || null,
-          requirements: form.requirements?.trim() || null,
-          included_details: form.included_details?.trim() || null,
-          excluded_details: form.excluded_details?.trim() || null,
-          pricing_information: form.pricing_information?.trim() || null,
-          availability_information: form.availability_information?.trim() || null,
-          typical_response_time: form.typical_response_time?.trim() || null,
-          internal_instructions: form.internal_instructions?.trim() || null,
-          escalation_instructions: form.escalation_instructions?.trim() || null,
-        },
-        { contactIds, staffIds, propertyIds, unitIds },
-      );
-      onClose();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save service');
-      setSaving(false);
-    }
+    setErrors((current) => ({ ...current, [key]: '' }));
   };
-
   const contactOptions = contacts.filter((item) => !contactIds.includes(String(item.id)));
   const staffOptions = staff.filter((item) => !staffIds.includes(String(item.id)));
   const propertyOptions = properties.filter((item) => !propertyIds.includes(item.id));
   const unitOptions = units.filter((item) => !unitIds.includes(item.id));
+  const requestClose = () => {
+    if (!saving) onClose();
+  };
+
+  const continueStep = () => {
+    if (step === 0) {
+      const nextErrors: Record<string, string> = {};
+      if (!form.name.trim()) nextErrors.name = 'Enter a service name to continue.';
+      if (!form.category.trim()) nextErrors.category = 'Choose or enter a category to continue.';
+      setErrors(nextErrors);
+      if (Object.keys(nextErrors).length) return;
+    }
+    setSaveError('');
+    setStep((current) => Math.min(current + 1, SERVICE_STEPS.length - 1));
+  };
+  const submit = async () => {
+    if (!form.name.trim() || !form.category.trim()) {
+      setStep(0);
+      setErrors({
+        ...(!form.name.trim() ? { name: 'Enter a service name to continue.' } : {}),
+        ...(!form.category.trim() ? { category: 'Choose or enter a category to continue.' } : {}),
+      });
+      return;
+    }
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onSave({
+        ...form,
+        name: form.name.trim(),
+        category: form.category.trim(),
+        short_description: form.short_description?.trim() || null,
+        description: form.description?.trim() || null,
+        customer_facing_description: form.customer_facing_description?.trim() || null,
+        requirements: form.requirements?.trim() || null,
+        included_details: form.included_details?.trim() || null,
+        excluded_details: form.excluded_details?.trim() || null,
+        pricing_information: form.pricing_information?.trim() || null,
+        availability_information: form.availability_information?.trim() || null,
+        typical_response_time: form.typical_response_time?.trim() || null,
+        internal_instructions: form.internal_instructions?.trim() || null,
+        escalation_instructions: form.escalation_instructions?.trim() || null,
+      }, { contactIds, staffIds, propertyIds, unitIds });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save service. Try again.');
+      setSaving(false);
+    }
+  };
+
+  const assignmentGroup = (
+    title: string,
+    caption: string,
+    value: string,
+    setValue: (value: string) => void,
+    options: { value: string; label: string; secondary?: string }[],
+    selectedIds: string[],
+    setSelected: React.Dispatch<React.SetStateAction<string[]>>,
+    resolveLabel: (id: string) => { id: string; label: string; secondary?: string },
+    testId: string,
+  ) => (
+    <section className="rounded-[12px] border border-[#e9e6e1] bg-white p-4" key={testId}>
+      <div className="flex items-start justify-between gap-3">
+        <div><h3 className="text-[12px] font-semibold text-[#34312c]">{title}</h3><p className="mt-1 text-[10px] text-[#969188]">{caption}</p></div>
+        <span className="rounded-full bg-[#f5f3ef] px-2 py-1 font-mono text-[10px] text-[#726d64]">{selectedIds.length}</span>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <div className="min-w-0 flex-1"><FlowPointSelect testId={`select-${testId}`} value={value} onChange={setValue} placeholder={`Select ${title.toLowerCase()}`} options={options} emptyLabel={`No unassigned ${title.toLowerCase()}`} /></div>
+        <button data-testid={`button-add-${testId}`} type="button" onClick={() => { if (value) { setSelected((current) => [...current, value]); setValue(''); } }} disabled={!value} className="flex h-[39px] shrink-0 items-center gap-1 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f4f2ef] disabled:opacity-40"><Plus size={12} />Add</button>
+      </div>
+      <SelectionChips labels={selectedIds.map(resolveLabel)} onRemove={(id) => setSelected((current) => current.filter((item) => item !== id))} />
+    </section>
+  );
 
   return (
-    <Modal onClose={onClose} wide>
-      <div className="flex items-center justify-between border-b border-[#ebe8e3] px-5 py-4">
-        <div>
-          <p className="text-[15px] font-semibold text-[#151412]">{service ? 'Edit service' : 'Add service'}</p>
-          <p className="mt-1 text-[11px] text-[#8b877f]">Document what the company provides so the team and future assistant have one reliable source of truth.</p>
+    <Modal onClose={requestClose} wide>
+      <div className="flex items-start justify-between border-b border-[#ebe8e3] px-5 py-4 sm:px-7">
+        <div className="min-w-0">
+          <p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#a16a52]">Service setup</p>
+          <h2 className="mt-1 text-[16px] font-semibold tracking-[-.02em] text-[#201e1a]">{service ? 'Edit service' : 'Add a service'}</h2>
+          <p className="mt-1 max-w-[580px] text-[11px] leading-5 text-[#89847c]">Build a dependable operating record for your team and FlowPoint AI.</p>
         </div>
-        <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full border border-[#e4e2de] text-[#817d76] hover:bg-[#f0eeea]">
-          <X size={14} />
-        </button>
+        <button type="button" aria-label="Close service setup" data-testid="button-close-service-form" onClick={requestClose} disabled={saving} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#e4e2de] text-[#817d76] hover:bg-[#f0eeea] disabled:opacity-50"><X size={14} /></button>
       </div>
-      <div className="max-h-[calc(92vh-72px)] overflow-y-auto px-5 py-5">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <p className="mb-3 border-b border-[#ebe8e3] pb-2 text-[12px] font-semibold text-[#35322e]">Basic information</p>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Service name">
-              <input autoFocus className={inputClass} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="Resident onboarding" />
-            </Field>
-          </div>
-          <Field label="Category">
-            <input className={inputClass} value={form.category} onChange={(event) => set('category', event.target.value)} placeholder="Resident support" />
-          </Field>
-          <Field label="Status">
-            <FlowPointSelect value={form.status} onChange={(value) => set('status', value as ServiceDraft['status'])} placeholder="Select status" options={SERVICE_STATUSES.map((item) => ({ ...item }))} />
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Short description">
-              <input className={inputClass} value={form.short_description ?? ''} onChange={(event) => set('short_description', event.target.value)} placeholder="A concise description for the service list" />
-            </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Detailed description">
-              <textarea className={textAreaClass} rows={3} value={form.description ?? ''} onChange={(event) => set('description', event.target.value)} placeholder="What this service is, who it is for, and when the team provides it." />
-            </Field>
-          </div>
+      <div className="border-b border-[#ebe8e3] bg-[#f7f5f1] px-5 py-4 sm:px-7">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold text-[#46423b]">Step {step + 1} <span className="font-normal text-[#969188]">of {SERVICE_STEPS.length}</span></p>
+          <p className="text-right text-[10px] text-[#89847c]">{SERVICE_STEPS[step].caption}</p>
         </div>
-
-        <button onClick={() => setDetailsOpen((open) => !open)} className="mt-5 flex w-full items-center justify-between border-t border-[#ebe8e3] pt-4 text-left">
-          <span>
-            <span className="block text-[12px] font-semibold text-[#35322e]">Operations</span>
-            <span className="mt-1 block text-[11px] text-[#9c978e]">Ownership, scope, eligibility, response expectations, and internal guidance</span>
-          </span>
-          {detailsOpen ? <ChevronRight size={16} className="rotate-90 text-[#868178]" /> : <ChevronRight size={16} className="text-[#868178]" />}
-        </button>
-        {detailsOpen && (
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Availability / eligibility" hint="optional">
-              <textarea className={textAreaClass} rows={3} value={form.availability_information ?? ''} onChange={(event) => set('availability_information', event.target.value)} placeholder="Who can request this service and when it is available" />
-            </Field>
-            <Field label="Typical response time" hint="optional">
-              <input className={inputClass} value={form.typical_response_time ?? ''} onChange={(event) => set('typical_response_time', event.target.value)} placeholder="Within 1 business day" />
-            </Field>
-            <Field label="Internal instructions" hint="optional">
-              <textarea className={textAreaClass} rows={4} value={form.internal_instructions ?? ''} onChange={(event) => set('internal_instructions', event.target.value)} placeholder="Steps the team should follow internally" />
-            </Field>
-            <Field label="Escalation instructions" hint="optional">
-              <textarea className={textAreaClass} rows={4} value={form.escalation_instructions ?? ''} onChange={(event) => set('escalation_instructions', event.target.value)} placeholder="When and how to escalate this service" />
-            </Field>
-            <div className="sm:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[.08em] text-[#77736d]">Assigned staff / team</p>
-              <div className="mt-2 flex gap-2">
-                <div className="min-w-0 flex-1"><FlowPointSelect value={staffToAdd} onChange={setStaffToAdd} placeholder="Select a staff member" options={staffOptions.map((item) => ({ value: String(item.id), label: item.name, secondary: [item.role, item.department].filter(Boolean).join(' · ') }))} emptyLabel="No unassigned staff" /></div>
-                <button type="button" onClick={() => { if (staffToAdd) { setStaffIds((current) => [...current, staffToAdd]); setStaffToAdd(''); } }} disabled={!staffToAdd} className="flex h-[39px] items-center gap-1 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f4f2ef] disabled:opacity-40"><Plus size={12} />Add</button>
-              </div>
-              <SelectionChips labels={staffIds.map((id) => { const item = staff.find((candidate) => String(candidate.id) === id); return { id, label: item?.name ?? 'Staff unavailable', secondary: item?.role ?? undefined }; })} onRemove={(id) => setStaffIds((current) => current.filter((item) => item !== id))} />
+        <div className="grid grid-cols-4 gap-2" role="list" aria-label="Service setup progress">
+          {SERVICE_STEPS.map((item, index) => (
+            <div key={item.title} role="listitem" aria-current={step === index ? 'step' : undefined}>
+              <div className={`h-[3px] rounded-full ${index <= step ? 'bg-[#a96d53]' : 'bg-[#dfdcd5]'}`} />
+              <p className={`mt-2 text-[9px] font-semibold uppercase tracking-[.08em] ${index === step ? 'text-[#8f563e]' : index < step ? 'text-[#68645c]' : 'text-[#a8a39b]'}`}>{item.title}</p>
             </div>
-            <div className="sm:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[.08em] text-[#77736d]">Properties the service applies to</p>
-              <div className="mt-2 flex gap-2">
-                <div className="min-w-0 flex-1"><FlowPointSelect value={propertyToAdd} onChange={setPropertyToAdd} placeholder="Select a property" options={propertyOptions.map((item) => ({ value: item.id, label: item.name, secondary: [item.city, item.address_line1].filter(Boolean).join(' · ') }))} emptyLabel="No unassigned properties" /></div>
-                <button type="button" onClick={() => { if (propertyToAdd) { setPropertyIds((current) => [...current, propertyToAdd]); setPropertyToAdd(''); } }} disabled={!propertyToAdd} className="flex h-[39px] items-center gap-1 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f4f2ef] disabled:opacity-40"><Plus size={12} />Add</button>
-              </div>
-              <SelectionChips labels={propertyIds.map((id) => { const item = properties.find((candidate) => candidate.id === id); return { id, label: item?.name ?? 'Property unavailable' }; })} onRemove={(id) => setPropertyIds((current) => current.filter((item) => item !== id))} />
-            </div>
-            <div className="sm:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[.08em] text-[#77736d]">Units the service applies to</p>
-              <div className="mt-2 flex gap-2">
-                <div className="min-w-0 flex-1"><FlowPointSelect value={unitToAdd} onChange={setUnitToAdd} placeholder="Select a unit" options={unitOptions.map((item) => ({ value: item.id, label: item.unit_number, secondary: properties.find((property) => property.id === item.property_id)?.name }))} emptyLabel="No unassigned units" /></div>
-                <button type="button" onClick={() => { if (unitToAdd) { setUnitIds((current) => [...current, unitToAdd]); setUnitToAdd(''); } }} disabled={!unitToAdd} className="flex h-[39px] items-center gap-1 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f4f2ef] disabled:opacity-40"><Plus size={12} />Add</button>
-              </div>
-              <SelectionChips labels={unitIds.map((id) => { const item = units.find((candidate) => candidate.id === id); return { id, label: item?.unit_number ?? 'Unit unavailable', secondary: item ? properties.find((property) => property.id === item.property_id)?.name ?? undefined : undefined }; })} onRemove={(id) => setUnitIds((current) => current.filter((item) => item !== id))} />
-            </div>
-          </div>
-        )}
-
-        <button onClick={() => setCustomerOpen((open) => !open)} className="mt-5 flex w-full items-center justify-between border-t border-[#ebe8e3] pt-4 text-left">
-          <span>
-            <span className="block text-[12px] font-semibold text-[#35322e]">Customer-facing information</span>
-            <span className="mt-1 block text-[11px] text-[#9c978e]">Give customers and the future assistant a clear explanation of the offer</span>
-          </span>
-          {customerOpen ? <ChevronRight size={16} className="rotate-90 text-[#868178]" /> : <ChevronRight size={16} className="text-[#868178]" />}
-        </button>
-        {customerOpen && (
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Field label="Customer-facing description"><textarea className={textAreaClass} rows={3} value={form.customer_facing_description ?? ''} onChange={(event) => set('customer_facing_description', event.target.value)} placeholder="How the service should be described to a customer" /></Field></div>
-            <Field label="Requirements / eligibility"><textarea className={textAreaClass} rows={3} value={form.requirements ?? ''} onChange={(event) => set('requirements', event.target.value)} placeholder="What a customer needs to qualify or provide" /></Field>
-            <Field label="What is included"><textarea className={textAreaClass} rows={3} value={form.included_details ?? ''} onChange={(event) => set('included_details', event.target.value)} placeholder="Included work, support, or deliverables" /></Field>
-            <Field label="What is not included"><textarea className={textAreaClass} rows={3} value={form.excluded_details ?? ''} onChange={(event) => set('excluded_details', event.target.value)} placeholder="Boundaries and exclusions" /></Field>
-            <Field label="Pricing / fee information" hint="optional"><textarea className={textAreaClass} rows={3} value={form.pricing_information ?? ''} onChange={(event) => set('pricing_information', event.target.value)} placeholder="Leave blank when the service has no fixed price" /></Field>
-          </div>
-        )}
-
-        <div className="mt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[.08em] text-[#77736d]">Contacts using this service</p>
-          <div className="flex gap-2">
-            <div className="min-w-0 flex-1"><FlowPointSelect value={contactToAdd} onChange={setContactToAdd} placeholder="Select a contact" options={contactOptions.map((item) => ({ value: String(item.id), label: item.name, secondary: item.customer_id ?? item.contact_type ?? undefined }))} emptyLabel="No unassigned contacts" /></div>
-            <button type="button" onClick={() => { if (contactToAdd) { setContactIds((current) => [...current, contactToAdd]); setContactToAdd(''); } }} disabled={!contactToAdd} className="flex h-[39px] items-center gap-1 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f4f2ef] disabled:opacity-40"><Plus size={12} />Add</button>
-          </div>
-          <SelectionChips labels={contactIds.map((id) => { const item = contacts.find((candidate) => String(candidate.id) === id); return { id, label: item?.name ?? 'Contact unavailable', secondary: item?.customer_id ?? undefined }; })} onRemove={(id) => setContactIds((current) => current.filter((item) => item !== id))} />
+          ))}
         </div>
-
-        {error && <div className="mt-4"><InlineError message={error} /></div>}
-        <div className="mt-5 flex justify-end gap-2 border-t border-[#ebe8e3] pt-4">
-          <button onClick={onClose} disabled={saving} className="h-9 rounded-[9px] border border-[#e4e2de] px-4 text-[12px] font-medium text-[#625e57] hover:bg-[#f0eeea] disabled:opacity-50">Cancel</button>
-          <button onClick={submit} disabled={saving} className="flex h-9 items-center gap-2 rounded-[9px] bg-[#151412] px-4 text-[12px] font-semibold text-white hover:bg-[#312f2c] disabled:opacity-50">{saving && <Loader2 size={13} className="animate-spin" />}{service ? 'Save changes' : 'Add service'}</button>
+      </div>
+      <div className="max-h-[calc(92vh-230px)] min-h-[340px] overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div key={step} initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.16 }}>
+            {step === 0 && <div>
+              <div className="mb-5"><p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#a16a52]">01 · Service identity</p><h3 className="mt-1 text-[19px] font-semibold tracking-[-.03em] text-[#25221e]">What does your team provide?</h3><p className="mt-1 text-[11px] leading-5 text-[#89847c]">Start with the details staff will use to recognize and route this service.</p></div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2"><Field label="Service name"><input data-testid="input-service-name" autoFocus className={`${inputClass} ${errors.name ? 'border-[#bd5b4f]' : ''}`} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="Resident move-in support" aria-invalid={Boolean(errors.name)} />{errors.name && <p className="mt-1.5 text-[11px] text-[#a33a30]">{errors.name}</p>}</Field></div>
+                <Field label="Category"><input data-testid="input-service-category" list="service-category-options" className={`${inputClass} ${errors.category ? 'border-[#bd5b4f]' : ''}`} value={form.category} onChange={(event) => set('category', event.target.value)} placeholder="Choose or enter a category" aria-invalid={Boolean(errors.category)} /><datalist id="service-category-options">{SERVICE_CATEGORIES.map((item) => <option key={item} value={item} />)}</datalist>{errors.category && <p className="mt-1.5 text-[11px] text-[#a33a30]">{errors.category}</p>}</Field>
+                <Field label="Catalog status"><FlowPointSelect value={form.status} onChange={(value) => set('status', value as ServiceDraft['status'])} placeholder="Select status" options={SERVICE_STATUSES.map((item) => ({ ...item }))} /></Field>
+                <div className="sm:col-span-2"><Field label="Short description" hint="Shown in the catalog"><input data-testid="input-service-short-description" className={inputClass} value={form.short_description ?? ''} onChange={(event) => set('short_description', event.target.value)} placeholder={guidance.short} /></Field></div>
+                <div className="sm:col-span-2"><Field label="Detailed description" hint="Optional"><textarea data-testid="input-service-description" className={textAreaClass} rows={3} value={form.description ?? ''} onChange={(event) => set('description', event.target.value)} placeholder={guidance.description} /></Field></div>
+              </div>
+            </div>}
+            {step === 1 && <div>
+              <div className="mb-5"><p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#a16a52]">02 · Service delivery</p><h3 className="mt-1 text-[19px] font-semibold tracking-[-.03em] text-[#25221e]">Make the process clear</h3><p className="mt-1 text-[11px] leading-5 text-[#89847c]">Capture the information people and the assistant need to set expectations and complete the work.</p></div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2 rounded-[11px] border border-[#eadbd1] bg-[#fbf5f0] p-3.5"><Field label="Customer-facing description" hint="Optional"><textarea data-testid="input-service-customer-description" className={`${textAreaClass} border-[#eadbd1]`} rows={3} value={form.customer_facing_description ?? ''} onChange={(event) => set('customer_facing_description', event.target.value)} placeholder="A clear explanation residents can understand" /></Field></div>
+                <Field label={guidance.availabilityLabel} hint="Optional"><textarea data-testid="input-service-availability" className={textAreaClass} rows={3} value={form.availability_information ?? ''} onChange={(event) => set('availability_information', event.target.value)} placeholder={guidance.availability} /></Field>
+                <Field label={guidance.responseLabel} hint="Optional"><input data-testid="input-service-response-time" className={inputClass} value={form.typical_response_time ?? ''} onChange={(event) => set('typical_response_time', event.target.value)} placeholder={guidance.response} /></Field>
+                <Field label={guidance.requirementsLabel} hint="Optional"><textarea data-testid="input-service-requirements" className={textAreaClass} rows={3} value={form.requirements ?? ''} onChange={(event) => set('requirements', event.target.value)} placeholder={guidance.requirements} /></Field>
+                <Field label={guidance.includedLabel} hint="Optional"><textarea data-testid="input-service-included" className={textAreaClass} rows={3} value={form.included_details ?? ''} onChange={(event) => set('included_details', event.target.value)} placeholder={guidance.included} /></Field>
+                <Field label={guidance.excludedLabel} hint="Optional"><textarea data-testid="input-service-excluded" className={textAreaClass} rows={3} value={form.excluded_details ?? ''} onChange={(event) => set('excluded_details', event.target.value)} placeholder={guidance.excluded} /></Field>
+                <Field label="Pricing / fee information" hint="Optional"><textarea data-testid="input-service-pricing" className={textAreaClass} rows={3} value={form.pricing_information ?? ''} onChange={(event) => set('pricing_information', event.target.value)} placeholder="Fees, billing basis, or leave blank if not applicable" /></Field>
+                <Field label="Internal instructions" hint="Optional · team only"><textarea data-testid="input-service-instructions" className={textAreaClass} rows={4} value={form.internal_instructions ?? ''} onChange={(event) => set('internal_instructions', event.target.value)} placeholder="Steps the team should follow to deliver this service" /></Field>
+                <Field label={guidance.escalationLabel} hint="Optional · team only"><textarea data-testid="input-service-escalation" className={textAreaClass} rows={4} value={form.escalation_instructions ?? ''} onChange={(event) => set('escalation_instructions', event.target.value)} placeholder={guidance.escalation} /></Field>
+              </div>
+            </div>}
+            {step === 2 && <div>
+              <div className="mb-5"><p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#a16a52]">03 · Coverage and assignments</p><h3 className="mt-1 text-[19px] font-semibold tracking-[-.03em] text-[#25221e]">Who and where does it apply?</h3><p className="mt-1 text-[11px] leading-5 text-[#89847c]">Assignments help your team see where the service is available. Every association is optional.</p></div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {assignmentGroup('Staff', 'Team members responsible for delivery', staffToAdd, setStaffToAdd, staffOptions.map((item) => ({ value: String(item.id), label: item.name, secondary: [item.role, item.department].filter(Boolean).join(' · ') })), staffIds, setStaffIds, (id) => { const item = staff.find((candidate) => String(candidate.id) === id); return { id, label: item?.name ?? 'Staff unavailable', secondary: item?.role ?? undefined }; }, 'service-staff')}
+                {assignmentGroup('Contacts', 'Residents or customers linked to the service', contactToAdd, setContactToAdd, contactOptions.map((item) => ({ value: String(item.id), label: item.name, secondary: item.customer_id ?? item.contact_type ?? undefined })), contactIds, setContactIds, (id) => { const item = contacts.find((candidate) => String(candidate.id) === id); return { id, label: item?.name ?? 'Contact unavailable', secondary: item?.customer_id ?? undefined }; }, 'service-contacts')}
+                {assignmentGroup('Properties', 'Buildings where this service is offered', propertyToAdd, setPropertyToAdd, propertyOptions.map((item) => ({ value: item.id, label: item.name, secondary: [item.city, item.address_line1].filter(Boolean).join(' · ') })), propertyIds, setPropertyIds, (id) => { const item = properties.find((candidate) => candidate.id === id); return { id, label: item?.name ?? 'Property unavailable' }; }, 'service-properties')}
+                {assignmentGroup('Units', 'Specific units covered by this service', unitToAdd, setUnitToAdd, unitOptions.map((item) => ({ value: item.id, label: item.unit_number, secondary: properties.find((property) => property.id === item.property_id)?.name })), unitIds, setUnitIds, (id) => { const item = units.find((candidate) => candidate.id === id); return { id, label: item?.unit_number ?? 'Unit unavailable', secondary: item ? properties.find((property) => property.id === item.property_id)?.name ?? undefined : undefined }; }, 'service-units')}
+              </div>
+            </div>}
+            {step === 3 && <div>
+              <div className="mb-5"><p className="text-[9px] font-semibold uppercase tracking-[.14em] text-[#a16a52]">04 · Final review</p><h3 className="mt-1 text-[19px] font-semibold tracking-[-.03em] text-[#25221e]">Ready to add to the catalog</h3><p className="mt-1 text-[11px] leading-5 text-[#89847c]">Check the essentials and assignments. You can go back to make changes before saving.</p></div>
+              <div className="overflow-hidden rounded-[13px] border border-[#e9e6e1] bg-white">
+                <div className="flex items-start justify-between gap-4 border-b border-[#f0eeeb] bg-[#fbfaf8] p-4">
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="text-[15px] font-semibold text-[#25221e]">{form.name.trim() || 'Untitled service'}</h4><StatusPill status={form.status} /></div><p className="mt-1 text-[10px] font-semibold uppercase tracking-[.08em] text-[#a16a52]">{form.category || 'No category'}</p><p className="mt-2 text-[11px] leading-5 text-[#77736d]">{form.short_description || form.description || 'No catalog description provided.'}</p></div>
+                  <button type="button" data-testid="button-edit-service-identity" onClick={() => setStep(0)} className="shrink-0 text-[10px] font-semibold text-[#965d45] hover:underline">Edit</button>
+                </div>
+                <div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
+                  <div className="border-b border-[#f0eeeb] p-4 sm:border-r"><div className="flex items-center justify-between gap-3"><h4 className="text-[11px] font-semibold text-[#403c35]">Delivery details</h4><button type="button" data-testid="button-edit-service-delivery" onClick={() => setStep(1)} className="text-[10px] font-semibold text-[#965d45] hover:underline">Edit</button></div><Detail label="Detailed description" value={form.description} /><Detail label="Customer-facing description" value={form.customer_facing_description} /><Detail label={guidance.availabilityLabel} value={form.availability_information} /><Detail label={guidance.responseLabel} value={form.typical_response_time} /><Detail label={guidance.requirementsLabel} value={form.requirements} /><Detail label={guidance.includedLabel} value={form.included_details} /><Detail label={guidance.excludedLabel} value={form.excluded_details} /><Detail label="Pricing" value={form.pricing_information} /><Detail label="Team guidance" value={form.internal_instructions} /><Detail label={guidance.escalationLabel} value={form.escalation_instructions} /></div>
+                  <div className="p-4"><div className="flex items-center justify-between gap-3"><h4 className="text-[11px] font-semibold text-[#403c35]">Assignments</h4><button type="button" data-testid="button-edit-service-coverage" onClick={() => setStep(2)} className="text-[10px] font-semibold text-[#965d45] hover:underline">Edit</button></div>
+                    <Detail label="Staff" value={staffIds.map((id) => staff.find((item) => String(item.id) === id)?.name ?? 'Unavailable staff').join(', ')} />
+                    <Detail label="Contacts" value={contactIds.map((id) => contacts.find((item) => String(item.id) === id)?.name ?? 'Unavailable contact').join(', ')} />
+                    <Detail label="Properties" value={propertyIds.map((id) => properties.find((item) => item.id === id)?.name ?? 'Unavailable property').join(', ')} />
+                    <Detail label="Units" value={unitIds.map((id) => { const unit = units.find((item) => item.id === id); return unit ? `${unit.unit_number}${properties.find((property) => property.id === unit.property_id)?.name ? ` · ${properties.find((property) => property.id === unit.property_id)?.name}` : ''}` : 'Unavailable unit'; }).join(', ')} />
+                    {!staffIds.length && !contactIds.length && !propertyIds.length && !unitIds.length && <p className="mt-3 rounded-[8px] bg-[#f7f5f1] px-3 py-2 text-[10px] text-[#89847c]">No assignments added. You can assign these later.</p>}
+                  </div>
+                </div>
+              </div>
+              {saveError && <div className="mt-4"><InlineError message={saveError} /></div>}
+            </div>}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-[#ebe8e3] bg-[#fbfaf8] px-5 py-4 sm:px-7">
+        <button type="button" data-testid="button-service-back" onClick={() => { setSaveError(''); setStep((current) => Math.max(current - 1, 0)); }} disabled={step === 0 || saving} className="flex h-9 items-center gap-2 rounded-[9px] border border-[#e4e2de] px-3 text-[11px] font-semibold text-[#625e57] hover:bg-[#f0eeea] disabled:cursor-not-allowed disabled:opacity-40"><ArrowLeft size={13} />Back</button>
+        <div className="flex items-center gap-2">
+          <button type="button" data-testid="button-service-cancel" onClick={onClose} disabled={saving} className="hidden h-9 rounded-[9px] px-3 text-[11px] font-medium text-[#77736d] hover:bg-[#f0eeea] disabled:opacity-50 sm:block">Cancel</button>
+          {step < SERVICE_STEPS.length - 1
+            ? <button type="button" data-testid="button-service-continue" onClick={continueStep} className="flex h-9 items-center gap-2 rounded-[9px] bg-[#a96d53] px-4 text-[11px] font-semibold text-white shadow-[0_2px_5px_rgba(66,43,31,.12)] hover:bg-[#925a43]">Continue<ChevronRight size={13} /></button>
+            : <button type="button" data-testid="button-save-service" onClick={submit} disabled={saving} className="flex h-9 items-center gap-2 rounded-[9px] bg-[#a96d53] px-4 text-[11px] font-semibold text-white shadow-[0_2px_5px_rgba(66,43,31,.12)] hover:bg-[#925a43] disabled:opacity-50">{saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCheck size={13} />}{saving ? 'Saving service' : service ? 'Save changes' : 'Add service'}</button>}
         </div>
       </div>
     </Modal>
@@ -667,7 +835,7 @@ export default function ServicesPage() {
           </div>
         </div>
         <AnimatePresence>{formService !== undefined && <ServiceForm service={formService} relationships={relationships} contacts={contacts} staff={staff} properties={properties} units={units} onSave={saveService} onClose={() => setFormService(undefined)} />}</AnimatePresence>
-        <AnimatePresence>{profileService && <ServiceProfile service={profileService} relationships={relationships} onClose={() => setProfileService(null)} onEdit={() => setFormService(profileService)} onDelete={() => setDeleteService(profileService)} />}</AnimatePresence>
+        <AnimatePresence>{profileService && <ServiceProfile service={profileService} relationships={relationships} onClose={() => setProfileService(null)} onEdit={() => { setFormService(profileService); setProfileService(null); }} onDelete={() => setDeleteService(profileService)} />}</AnimatePresence>
         <AnimatePresence>{deleteService && <ConfirmDelete name={deleteService.name} deleting={deleting} onCancel={() => setDeleteService(null)} onConfirm={deleteSelected} />}</AnimatePresence>
       </div>
     </AppLayout>
